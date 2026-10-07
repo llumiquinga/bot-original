@@ -5,60 +5,46 @@ const path = require('path');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
 });
 
 const TOKEN = process.env.DISCORD_TOKEN;
-// ✅ Carpeta SEGURA que NO se borra
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'economy-data.json');
 
-// Crear carpeta si no existe
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadData() {
   try {
     if (!fs.existsSync(DATA_FILE)) return {};
     return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 }
 
 function saveData(data) {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-  } catch (e) {
-    console.error('Error al guardar:', e);
-  }
-}
-
-function getUserData(id) {
-  const d = loadData();
-  if (!d[id]) d[id] = { wallet: 0, bank: 0 };
-  return d[id];
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
 function formatMoney(n) {
   return `$${n.toLocaleString()}`;
 }
 
-// ========== COMANDOS DE BARRA ==========
+// ============= COMANDOS DE BARRA =============
 const commands = [
   { name: 'balance', description: '💰 Ver tu saldo' },
   { name: 'daily', description: '🎁 Bono diario' },
-  { name: 'work', description: '💼 Trabajar por dinero' },
-  { name: 'deposit', description: '🏦 Depositar al banco', options: [{name:'cantidad',type:4,description:'Monto',required:true}] },
-  { name: 'withdraw', description: '💵 Retirar del banco', options: [{name:'cantidad',type:4,description:'Monto',required:true}] },
+  { name: 'work', description: '💼 Trabajar' },
+  { name: 'deposit', description: '🏦 Depositar', options: [{name:'cantidad',type:4,description:'Monto',required:true}] },
+  { name: 'withdraw', description: '💵 Retirar', options: [{name:'cantidad',type:4,description:'Monto',required:true}] },
   { name: 'pay', description: '💸 Enviar dinero', options: [
     {name:'usuario',type:6,description:'A quién',required:true},
     {name:'cantidad',type:4,description:'Cuánto',required:true}
   ]},
-  { name: 'crime', description: '🔨 Delinquir — riesgo alto' },
+  { name: 'crime', description: '🔨 Delinquir' },
   { name: 'slots', description: '🎰 Tragamonedas', options: [{name:'apuesta',type:4,description:'Monto',required:true}] },
-  { name: 'leaderboard', description: '🏆 Los más ricos' },
   { name: 'ruleta', description: '🎡 Ruleta', options: [
     {name:'color',type:3,description:'rojo/negro/verde',required:true,choices:[
       {name:'Rojo',value:'rojo'},{name:'Negro',value:'negro'},{name:'Verde',value:'verde'}
@@ -71,27 +57,27 @@ const commands = [
   ]},
   { name: 'gallos', description: '🐔 Pelea de gallos', options: [
     {name:'eleccion',type:3,description:'rojo/azul',required:true,choices:[
-      {name:'Gallo Rojo 🔴',value:'rojo'},{name:'Gallo Azul 🔵',value:'azul'}
+      {name:'Rojo',value:'rojo'},{name:'Azul',value:'azul'}
     ]},
     {name:'apuesta',type:4,description:'Cantidad',required:true}
-  ]}
+  ]},
+  { name: 'leaderboard', description: '🏆 Ranking' }
 ];
 
 const rest = new REST({version:'10'}).setToken(TOKEN);
 (async () => {
   try {
-    console.log('🔄 Cargando comandos...');
+    console.log('🔄 Registrando comandos...');
     await rest.put(Routes.applicationCommands(client.user?.id??''), {body:commands});
-    console.log('✅ Comandos listos!');
-  } catch(e){console.error(e);}
+    console.log('✅ Todos los comandos registrados!');
+  } catch(e){console.error('Error comandos:',e);}
 })();
 
 client.on('ready', () => {
   console.log(`✅ Encendido como ${client.user.tag}`);
-  console.log(`📂 Datos guardados en: ${DATA_FILE}`);
 });
 
-// ========== COMANDOS CON PREFIJO (!) ==========
+// ============= PREFIJO (!) =============
 client.on('messageCreate', async msg => {
   if (!msg.guild || msg.author.bot) return;
   const args = msg.content.trim().split(/\s+/);
@@ -100,8 +86,9 @@ client.on('messageCreate', async msg => {
   let data = loadData();
   if (!data[uid]) data[uid] = { wallet:0, bank:0 };
 
+  // balance
   if (['!balance','!saldo'].includes(cmd)) {
-    const u = getUserData(uid);
+    const u = data[uid];
     return msg.reply({embeds:[new EmbedBuilder()
       .setColor('#FFD700').setTitle(`💰 Saldo de ${msg.author.username}`)
       .addFields(
@@ -113,6 +100,7 @@ client.on('messageCreate', async msg => {
     ]});
   }
 
+  // daily
   if (['!daily','!diario'].includes(cmd)) {
     const last = data[uid].lastDaily || 0;
     const cd = 24*60*60*1000;
@@ -126,6 +114,7 @@ client.on('messageCreate', async msg => {
     return msg.reply(`🎉 ¡Bono diario! +$150 💵`);
   }
 
+  // work
   if (cmd === '!work') {
     const last = data[uid].lastWork || 0;
     const cd = 4*60*60*1000;
@@ -140,6 +129,7 @@ client.on('messageCreate', async msg => {
     return msg.reply(`💼 ¡Trabajaste bien! Ganaste ${formatMoney(gan)} 💵`);
   }
 
+  // deposit
   if (cmd === '!deposit') {
     let amt = args[0] === 'all' ? data[uid].wallet : parseInt(args[0]);
     if (!amt || amt <= 0 || amt > data[uid].wallet) return msg.reply('❌ Monto inválido');
@@ -147,6 +137,7 @@ client.on('messageCreate', async msg => {
     return msg.reply(`🏦 Depositaste ${formatMoney(amt)} al banco ✅`);
   }
 
+  // withdraw
   if (['!withdraw','!retirar'].includes(cmd)) {
     let amt = args[0] === 'all' ? data[uid].bank : parseInt(args[0]);
     if (!amt || amt <= 0 || amt > data[uid].bank) return msg.reply('❌ Monto inválido');
@@ -154,6 +145,7 @@ client.on('messageCreate', async msg => {
     return msg.reply(`💵 Retiraste ${formatMoney(amt)} del banco ✅`);
   }
 
+  // pay
   if (['!pay','!pagar'].includes(cmd)) {
     const quien = msg.mentions.users.first();
     const amt = parseInt(args[1]);
@@ -164,6 +156,7 @@ client.on('messageCreate', async msg => {
     return msg.reply(`💸 Le enviaste ${formatMoney(amt)} a ${quien.username} ✅`);
   }
 
+  // crime
   if (cmd === '!crime') {
     const last = data[uid].lastCrime || 0;
     const cd = 2*60*60*1000;
@@ -173,7 +166,7 @@ client.on('messageCreate', async msg => {
     }
     data[uid].lastCrime = Date.now();
     if (Math.random() < 0.6) {
-      const multa = Math.floor(data[uid].wallet*(Math.random()*0.2+0.2));
+      const multa = Math.floor(data[uid].wallet * (Math.random()*0.2+0.2));
       data[uid].wallet = Math.max(0, data[uid].wallet - multa);
       saveData(data);
       return msg.reply(`🚔 ¡Te atraparon! Pierdes ${formatMoney(multa)} ⚖️`);
@@ -185,91 +178,80 @@ client.on('messageCreate', async msg => {
     }
   }
 
+  // slots
   if (['!slots','!tragamonedas'].includes(cmd)) {
     const ap = parseInt(args[0]);
     if (!ap || ap <= 0 || data[uid].wallet < ap)
       return msg.reply('❌ Uso: !slots cantidad');
     data[uid].wallet -= ap;
     const sym = ['🍒','🍋','🍊','🍇','💎','7️⃣'];
-    const rod = [sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)]];
+    const r = [sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)]];
     let gan = 0;
-    if (rod[0] === rod[1] && rod[1] === rod[2]) {
-      gan = rod[0] === '💎' ? ap*10 : rod[0] === '7️⃣' ? ap*5 : ap*3;
-    } else if (rod[0] === rod[1] || rod[1] === rod[2]) {
-      gan = Math.floor(ap*1.5);
-    }
-    if (gan > 0) data[uid].wallet += gan;
+    if (r[0]===r[1] && r[1]===r[2]) gan = r[0]==='💎'?ap*10:r[0]==='7️⃣'?ap*5:ap*3;
+    else if (r[0]===r[1] || r[1]===r[2]) gan = Math.floor(ap*1.5);
+    if (gan>0) data[uid].wallet += gan;
     saveData(data);
-    return msg.reply(`🎰 | ${rod[0]} | ${rod[1]} | ${rod[2]} |\n${gan>0?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
+    return msg.reply(`🎰 | ${r[0]} | ${r[1]} | ${r[2]} |\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
+  // ruleta
   if (cmd === '!ruleta') {
     const color = args[0]?.toLowerCase();
     const ap = parseInt(args[1]);
-    if (!['rojo','negro','verde'].includes(color) || !ap || ap <= 0 || data[uid].wallet < ap)
+    if (!['rojo','negro','verde'].includes(color) || !ap || ap<=0 || data[uid].wallet<ap)
       return msg.reply('❌ Uso: !ruleta rojo/negro/verde cantidad');
     data[uid].wallet -= ap;
-    const res = Math.random() < 0.05 ? 'verde' : Math.random() < 0.5 ? 'rojo' : 'negro';
+    const res = Math.random()<0.05?'verde':Math.random()<0.5?'rojo':'negro';
     let gan = 0;
-    if (color === res) {
-      gan = color === 'verde' ? ap*14 : ap*2;
-      data[uid].wallet += gan;
-    }
+    if (color===res) { gan = color==='verde'?ap*14:ap*2; data[uid].wallet += gan; }
     saveData(data);
-    const emoji = res==='rojo'?'🔴':res==='negro'?'⚫':'🟢';
-    return msg.reply(`${emoji} Salió: ${res.toUpperCase()}\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+    const em = res==='rojo'?'🔴':res==='negro'?'⚫':'🟢';
+    return msg.reply(`${em} Salió: ${res.toUpperCase()}\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
+  // dados
   if (cmd === '!dados') {
     const op = args[0]?.toLowerCase();
     const ap = parseInt(args[1]);
-    const valido = ['par','impar','2','3','4','5','6','7','8','9','10','11','12'];
-    if (!valido.includes(op) || !ap || ap <= 0 || data[uid].wallet < ap)
+    const val = ['par','impar','2','3','4','5','6','7','8','9','10','11','12'];
+    if (!val.includes(op) || !ap || ap<=0 || data[uid].wallet<ap)
       return msg.reply('❌ Uso: !dados par/impar/número cantidad');
     data[uid].wallet -= ap;
     const d1 = Math.floor(Math.random()*6)+1;
     const d2 = Math.floor(Math.random()*6)+1;
-    const total = d1+d2;
+    const tot = d1+d2;
     let gan = 0;
-    const acerto = op==='par' ? total%2===0 : op==='impar' ? total%2!==0 : parseInt(op)===total;
-    if (acerto) {
-      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ap*2;
-      data[uid].wallet += Math.floor(gan);
-    }
+    const ok = op==='par'?tot%2===0:op==='impar'?tot%2!==0:parseInt(op)===tot;
+    if (ok) { gan = ['2','12'].includes(op)?ap*6:['3','11'].includes(op)?ap*5:ap*2; data[uid].wallet += Math.floor(gan); }
     saveData(data);
-    return msg.reply(`🎲 ${d1} + ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
+    return msg.reply(`🎲 ${d1} + ${d2} = **${tot}**\n${ok?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
   }
 
+  // gallos
   if (cmd === '!gallos') {
-    const eleccion = args[0]?.toLowerCase();
+    const el = args[0]?.toLowerCase();
     const ap = parseInt(args[1]);
-    if (!['rojo','azul'].includes(eleccion) || !ap || ap <= 0 || data[uid].wallet < ap)
+    if (!['rojo','azul'].includes(el) || !ap || ap<=0 || data[uid].wallet<ap)
       return msg.reply('❌ Uso: !gallos rojo/azul cantidad');
     data[uid].wallet -= ap;
-    const ganador = Math.random() < 0.5 ? 'rojo' : 'azul';
+    const ganador = Math.random()<0.5?'rojo':'azul';
     let gan = 0;
-    if (eleccion === ganador) {
-      gan = ap*2;
-      data[uid].wallet += gan;
-    }
+    if (el===ganador) { gan = ap*2; data[uid].wallet += gan; }
     saveData(data);
     const nom = ganador==='rojo'?'Gallo Rojo 🔴':'Gallo Azul 🔵';
-    return msg.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+    return msg.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${el===ganador?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
+  // leaderboard
   if (['!leaderboard','!lb'].includes(cmd)) {
-    const todos = Object.entries(loadData())
-      .map(([id,d])=>({id,total:d.wallet+d.bank}))
-      .sort((a,b)=>b.total-a.total).slice(0,10);
+    const todos = Object.entries(loadData()).map(([id,d])=>({id,total:d.wallet+d.bank})).sort((a,b)=>b.total-a.total).slice(0,10);
     let txt = '';
     for(let i=0;i<todos.length;i++) txt += `${i+1}. <@${todos[i].id}> — ${formatMoney(todos[i].total)}\n`;
-    return msg.reply({embeds:[new EmbedBuilder()
-      .setColor('#FFD700').setTitle('🏆 Los más ricos').setDescription(txt||'Sin datos')
-    ]});
+    return msg.reply({embeds:[new EmbedBuilder().setColor('#FFD700').setTitle('🏆 Los más ricos').setDescription(txt||'Sin datos')]});
   }
 });
 
-// ========== COMANDOS DE BARRA (/) ==========
+// ============= BARRA (/) =============
 client.on('interactionCreate', async int => {
   if (!int.isChatInputCommand()) return;
   const {commandName,user,options} = int;
@@ -277,169 +259,145 @@ client.on('interactionCreate', async int => {
   let data = loadData();
   if (!data[uid]) data[uid] = { wallet:0, bank:0 };
 
-  if (commandName === 'balance') {
-    const u = getUserData(uid);
-    return int.reply({embeds:[new EmbedBuilder()
-      .setColor('#FFD700').setTitle(`💰 Saldo de ${user.username}`)
-      .addFields(
-        {name:'💵 Cartera',value:formatMoney(u.wallet),inline:true},
-        {name:'🏦 Banco',value:formatMoney(u.bank),inline:true},
-        {name:'💎 Total',value:formatMoney(u.wallet+u.bank),inline:true}
-      )
-      .setFooter({text:'Original ✌️ — Economía'})
-    ]});
-  }
-
-  if (commandName === 'daily') {
-    const last = data[uid].lastDaily || 0;
-    const cd = 24*60*60*1000;
-    if (Date.now()-last < cd) {
-      const h = Math.ceil((cd-(Date.now()-last))/3600000);
-      return int.reply(`⏰ Ya reclamaste! Vuelve en ${h} horas`);
+  try {
+    if (commandName === 'balance') {
+      const u = data[uid];
+      return int.reply({embeds:[new EmbedBuilder().setColor('#FFD700').setTitle(`💰 Saldo de ${user.username}`)
+        .addFields({name:'💵 Cartera',value:formatMoney(u.wallet),inline:true},{name:'🏦 Banco',value:formatMoney(u.bank),inline:true},{name:'💎 Total',value:formatMoney(u.wallet+u.bank),inline:true})
+        .setFooter({text:'Original ✌️ — Economía'})]});
     }
-    data[uid].wallet += 150;
-    data[uid].lastDaily = Date.now();
-    saveData(data);
-    return int.reply(`🎉 ¡Bono diario! +$150 💵`);
-  }
 
-  if (commandName === 'work') {
-    const last = data[uid].lastWork || 0;
-    const cd = 4*60*60*1000;
-    if (Date.now()-last < cd) {
-      const m = Math.ceil((cd-(Date.now()-last))/60000);
-      return int.reply(`⏰ Descansa! Vuelve en ${m} minutos`);
+    if (commandName === 'daily') {
+      const last = data[uid].lastDaily || 0;
+      const cd = 24*60*60*1000;
+      if (Date.now()-last < cd) {
+        const h = Math.ceil((cd-(Date.now()-last))/3600000);
+        return int.reply(`⏰ Ya reclamaste! Vuelve en ${h} horas`);
+      }
+      data[uid].wallet += 150; data[uid].lastDaily = Date.now(); saveData(data);
+      return int.reply(`🎉 ¡Bono diario! +$150 💵`);
     }
-    const gan = Math.floor(Math.random()*231)+20;
-    data[uid].wallet += gan;
-    data[uid].lastWork = Date.now();
-    saveData(data);
-    return int.reply(`💼 ¡Trabajaste bien! Ganaste ${formatMoney(gan)} 💵`);
-  }
 
-  if (commandName === 'deposit') {
-    let amt = options.getInteger('cantidad');
-    if (!amt || amt <= 0 || amt > data[uid].wallet) return int.reply('❌ Monto inválido');
-    data[uid].wallet -= amt; data[uid].bank += amt; saveData(data);
-    return int.reply(`🏦 Depositaste ${formatMoney(amt)} al banco ✅`);
-  }
-
-  if (commandName === 'withdraw') {
-    let amt = options.getInteger('cantidad');
-    if (!amt || amt <= 0 || amt > data[uid].bank) return int.reply('❌ Monto inválido');
-    data[uid].bank -= amt; data[uid].wallet += amt; saveData(data);
-    return int.reply(`💵 Retiraste ${formatMoney(amt)} del banco ✅`);
-  }
-
-  if (commandName === 'pay') {
-    const quien = options.getUser('usuario');
-    const amt = options.getInteger('cantidad');
-    if (!quien || !amt || amt <= 0 || data[uid].wallet < amt)
-      return int.reply('❌ Datos inválidos');
-    if (!data[quien.id]) data[quien.id] = {wallet:0,bank:0};
-    data[uid].wallet -= amt; data[quien.id].wallet += amt; saveData(data);
-    return int.reply(`💸 Le enviaste ${formatMoney(amt)} a ${quien.username} ✅`);
-  }
-
-  if (commandName === 'crime') {
-    const last = data[uid].lastCrime || 0;
-    const cd = 2*60*60*1000;
-    if (Date.now()-last < cd) {
-      const m = Math.ceil((cd-(Date.now()-last))/60000);
-      return int.reply(`⏰ Demasiado arriesgado! Vuelve en ${m} minutos`);
+    if (commandName === 'work') {
+      const last = data[uid].lastWork || 0;
+      const cd = 4*60*60*1000;
+      if (Date.now()-last < cd) {
+        const m = Math.ceil((cd-(Date.now()-last))/60000);
+        return int.reply(`⏰ Descansa! Vuelve en ${m} minutos`);
+      }
+      const gan = Math.floor(Math.random()*231)+20;
+      data[uid].wallet += gan; data[uid].lastWork = Date.now(); saveData(data);
+      return int.reply(`💼 ¡Trabajaste bien! Ganaste ${formatMoney(gan)} 💵`);
     }
-    data[uid].lastCrime = Date.now();
-    if (Math.random() < 0.6) {
-      const multa = Math.floor(data[uid].wallet*(Math.random()*0.2+0.2));
-      data[uid].wallet = Math.max(0, data[uid].wallet - multa);
+
+    if (commandName === 'deposit') {
+      const amt = options.getInteger('cantidad');
+      if (!amt || amt<=0 || amt>data[uid].wallet) return int.reply('❌ Monto inválido');
+      data[uid].wallet -= amt; data[uid].bank += amt; saveData(data);
+      return int.reply(`🏦 Depositaste ${formatMoney(amt)} al banco ✅`);
+    }
+
+    if (commandName === 'withdraw') {
+      const amt = options.getInteger('cantidad');
+      if (!amt || amt<=0 || amt>data[uid].bank) return int.reply('❌ Monto inválido');
+      data[uid].bank -= amt; data[uid].wallet += amt; saveData(data);
+      return int.reply(`💵 Retiraste ${formatMoney(amt)} del banco ✅`);
+    }
+
+    if (commandName === 'pay') {
+      const quien = options.getUser('usuario');
+      const amt = options.getInteger('cantidad');
+      if (!quien || !amt || amt<=0 || data[uid].wallet<amt) return int.reply('❌ Datos inválidos');
+      if (!data[quien.id]) data[quien.id] = {wallet:0,bank:0};
+      data[uid].wallet -= amt; data[quien.id].wallet += amt; saveData(data);
+      return int.reply(`💸 Le enviaste ${formatMoney(amt)} a ${quien.username} ✅`);
+    }
+
+    if (commandName === 'crime') {
+      const last = data[uid].lastCrime || 0;
+      const cd = 2*60*60*1000;
+      if (Date.now()-last < cd) {
+        const m = Math.ceil((cd-(Date.now()-last))/60000);
+        return int.reply(`⏰ Demasiado arriesgado! Vuelve en ${m} minutos`);
+      }
+      data[uid].lastCrime = Date.now();
+      if (Math.random() < 0.6) {
+        const multa = Math.floor(data[uid].wallet*(Math.random()*0.2+0.2));
+        data[uid].wallet = Math.max(0, data[uid].wallet - multa); saveData(data);
+        return int.reply(`🚔 ¡Te atraparon! Pierdes ${formatMoney(multa)} ⚖️`);
+      } else {
+        const gan = Math.floor(Math.random()*451)+250;
+        data[uid].wallet += gan; saveData(data);
+        return int.reply(`🔨 ¡Lo lograste! Ganaste ${formatMoney(gan)} 💰`);
+      }
+    }
+
+    if (commandName === 'slots') {
+      const ap = options.getInteger('apuesta');
+      if (!ap || ap<=0 || data[uid].wallet<ap) return int.reply('❌ Saldo insuficiente');
+      data[uid].wallet -= ap;
+      const sym = ['🍒','🍋','🍊','🍇','💎','7️⃣'];
+      const r = [sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)]];
+      let gan = 0;
+      if (r[0]===r[1] && r[1]===r[2]) gan = r[0]==='💎'?ap*10:r[0]==='7️⃣'?ap*5:ap*3;
+      else if (r[0]===r[1] || r[1]===r[2]) gan = Math.floor(ap*1.5);
+      if (gan>0) data[uid].wallet += gan;
       saveData(data);
-      return int.reply(`🚔 ¡Te atraparon! Pierdes ${formatMoney(multa)} ⚖️`);
-    } else {
-      const gan = Math.floor(Math.random()*451)+250;
-      data[uid].wallet += gan;
+      return int.reply(`🎰 | ${r[0]} | ${r[1]} | ${r[2]} |\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+    }
+
+    if (commandName === 'ruleta') {
+      const color = options.getString('color');
+      const ap = options.getInteger('apuesta');
+      if (!ap || ap<=0 || data[uid].wallet<ap) return int.reply('❌ Saldo insuficiente');
+      data[uid].wallet -= ap;
+      const res = Math.random()<0.05?'verde':Math.random()<0.5?'rojo':'negro';
+      let gan = 0;
+      if (color===res) { gan = color==='verde'?ap*14:ap*2; data[uid].wallet += gan; }
       saveData(data);
-      return int.reply(`🔨 ¡Lo lograste! Ganaste ${formatMoney(gan)} 💰`);
+      const em = res==='rojo'?'🔴':res==='negro'?'⚫':'🟢';
+      return int.reply(`${em} Salió: ${res.toUpperCase()}\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
     }
-  }
 
-  if (commandName === 'slots') {
-    const ap = options.getInteger('apuesta');
-    if (!ap || ap <= 0 || data[uid].wallet < ap)
-      return int.reply('❌ Monto inválido');
-    data[uid].wallet -= ap;
-    const sym = ['🍒','🍋','🍊','🍇','💎','7️⃣'];
-    const rod = [sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)], sym[Math.floor(Math.random()*sym.length)]];
-    let gan = 0;
-    if (rod[0] === rod[1] && rod[1] === rod[2]) {
-      gan = rod[0] === '💎' ? ap*10 : rod[0] === '7️⃣' ? ap*5 : ap*3;
-    } else if (rod[0] === rod[1] || rod[1] === rod[2]) {
-      gan = Math.floor(ap*1.5);
+    if (commandName === 'dados') {
+      const op = options.getString('opcion');
+      const ap = options.getInteger('apuesta');
+      if (!ap || ap<=0 || data[uid].wallet<ap) return int.reply('❌ Saldo insuficiente');
+      data[uid].wallet -= ap;
+      const d1 = Math.floor(Math.random()*6)+1;
+      const d2 = Math.floor(Math.random()*6)+1;
+      const tot = d1+d2;
+      let gan = 0;
+      const ok = op==='par'?tot%2===0:op==='impar'?tot%2!==0:parseInt(op)===tot;
+      if (ok) { gan = ['2','12'].includes(op)?ap*6:['3','11'].includes(op)?ap*5:ap*2; data[uid].wallet += Math.floor(gan); }
+      saveData(data);
+      return int.reply(`🎲 ${d1} + ${d2} = **${tot}**\n${ok?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
     }
-    if (gan > 0) data[uid].wallet += gan;
-    saveData(data);
-    return int.reply(`🎰 | ${rod[0]} | ${rod[1]} | ${rod[2]} |\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
-  }
 
-  if (commandName === 'ruleta') {
-    const color = options.getString('color');
-    const ap = options.getInteger('apuesta');
-    if (!ap || ap <= 0 || data[uid].wallet < ap) return int.reply('❌ Saldo insuficiente');
-    data[uid].wallet -= ap;
-    const res = Math.random() < 0.05 ? 'verde' : Math.random() < 0.5 ? 'rojo' : 'negro';
-    let gan = 0;
-    if (color === res) {
-      gan = color === 'verde' ? ap*14 : ap*2;
-      data[uid].wallet += gan;
+    if (commandName === 'gallos') {
+      const el = options.getString('eleccion');
+      const ap = options.getInteger('apuesta');
+      if (!ap || ap<=0 || data[uid].wallet<ap) return int.reply('❌ Saldo insuficiente');
+      data[uid].wallet -= ap;
+      const ganador = Math.random()<0.5?'rojo':'azul';
+      let gan = 0;
+      if (el===ganador) { gan = ap*2; data[uid].wallet += gan; }
+      saveData(data);
+      const nom = ganador==='rojo'?'Gallo Rojo 🔴':'Gallo Azul 🔵';
+      return int.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${el===ganador?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
     }
-    saveData(data);
-    const emoji = res==='rojo'?'🔴':res==='negro'?'⚫':'🟢';
-    return int.reply(`${emoji} Salió: ${res.toUpperCase()}\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
-  }
 
-  if (commandName === 'dados') {
-    const op = options.getString('opcion');
-    const ap = options.getInteger('apuesta');
-    if (!ap || ap <= 0 || data[uid].wallet < ap) return int.reply('❌ Saldo insuficiente');
-    data[uid].wallet -= ap;
-    const d1 = Math.floor(Math.random()*6)+1;
-    const d2 = Math.floor(Math.random()*6)+1;
-    const total = d1+d2;
-    let gan = 0;
-    const acerto = op==='par' ? total%2===0 : op==='impar' ? total%2!==0 : parseInt(op)===total;
-    if (acerto) {
-      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ap*2;
-      data[uid].wallet += Math.floor(gan);
+    if (commandName === 'leaderboard') {
+      const todos = Object.entries(loadData()).map(([id,d])=>({id,total:d.wallet+d.bank})).sort((a,b)=>b.total-a.total).slice(0,10);
+      let txt = '';
+      for(let i=0;i<todos.length;i++) txt += `${i+1}. <@${todos[i].id}> — ${formatMoney(todos[i].total)}\n`;
+      return int.reply({embeds:[new EmbedBuilder().setColor('#FFD700').setTitle('🏆 Los más ricos').setDescription(txt||'Sin datos')]});
     }
-    saveData(data);
-    return int.reply(`🎲 ${d1} + ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
-  }
 
-  if (commandName === 'gallos') {
-    const eleccion = options.getString('eleccion');
-    const ap = options.getInteger('apuesta');
-    if (!ap || ap <= 0 || data[uid].wallet < ap) return int.reply('❌ Saldo insuficiente');
-    data[uid].wallet -= ap;
-    const ganador = Math.random() < 0.5 ? 'rojo' : 'azul';
-    let gan = 0;
-    if (eleccion === ganador) {
-      gan = ap*2;
-      data[uid].wallet += gan;
-    }
-    saveData(data);
-    const nom = ganador==='rojo'?'Gallo Rojo 🔴':'Gallo Azul 🔵';
-    return int.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
-  }
-
-  if (commandName === 'leaderboard') {
-    const todos = Object.entries(loadData())
-      .map(([id,d])=>({id,total:d.wallet+d.bank}))
-      .sort((a,b)=>b.total-a.total).slice(0,10);
-    let txt = '';
-    for(let i=0;i<todos.length;i++) txt += `${i+1}. <@${todos[i].id}> — ${formatMoney(todos[i].total)}\n`;
-    return int.reply({embeds:[new EmbedBuilder()
-      .setColor('#FFD700').setTitle('🏆 Los más ricos').setDescription(txt||'Sin datos')
-    ]});
+  } catch (err) {
+    console.error('Error comando:', err);
+    if (!int.replied) int.reply('❌ Ocurrió un error, intenta de nuevo.').catch(()=>{});
   }
 });
 
-client.login(TOKEN).catch(e=>console.error('❌ Error:',e));
+client.login(TOKEN).catch(e=>console.error('❌ Error login:',e));
