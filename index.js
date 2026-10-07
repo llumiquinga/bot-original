@@ -32,7 +32,7 @@ function formatMoney(n) {
   return `$${n.toLocaleString()}`;
 }
 
-// Comandos de barra
+// ========== COMANDOS DE BARRA ==========
 const commands = [
   { name: 'balance', description: '💰 Ver tu saldo' },
   { name: 'daily', description: '🎁 Bono diario' },
@@ -45,7 +45,23 @@ const commands = [
   ]},
   { name: 'crime', description: '🔨 Delinquir — riesgo alto' },
   { name: 'slots', description: '🎰 Tragamonedas', options: [{name:'apuesta',type:4,description:'Monto',required:true}] },
-  { name: 'leaderboard', description: '🏆 Los más ricos del servidor' }
+  { name: 'leaderboard', description: '🏆 Los más ricos' },
+  { name: 'ruleta', description: '🎡 Ruleta — rojo/negro/verde', options: [
+    {name:'color',type:3,description:'Elige: rojo/negro/verde',required:true,choices:[
+      {name:'Rojo',value:'rojo'},{name:'Negro',value:'negro'},{name:'Verde',value:'verde'}
+    ]},
+    {name:'apuesta',type:4,description:'Cantidad a apostar',required:true}
+  ]},
+  { name: 'dados', description: '🎲 Dados — par/impar/número', options: [
+    {name:'opcion',type:3,description:'Par/Impar/Número(2-12)',required:true},
+    {name:'apuesta',type:4,description:'Cantidad a apostar',required:true}
+  ]},
+  { name: 'gallos', description: '🐔 Pelea de gallos — apuesta a tu gallo', options: [
+    {name:'gallos',type:3,description:'Gallo Rojo o Gallo Azul',required:true,choices:[
+      {name:'Gallo Rojo 🔴',value:'rojo'},{name:'Gallo Azul 🔵',value:'azul'}
+    ]},
+    {name:'apuesta',type:4,description:'Cantidad a apostar',required:true}
+  ]}
 ];
 
 const rest = new REST({version:'10'}).setToken(TOKEN);
@@ -53,7 +69,7 @@ const rest = new REST({version:'10'}).setToken(TOKEN);
   try {
     console.log('🔄 Cargando comandos...');
     await rest.put(Routes.applicationCommands(client.user?.id??''), {body:commands});
-    console.log('✅ Todos los comandos registrados!');
+    console.log('✅ ¡Todos los comandos listos!');
   } catch(e){console.error(e);}
 })();
 
@@ -61,14 +77,20 @@ client.on('ready', () => {
   console.log(`✅ Encendido como ${client.user.tag}`);
 });
 
-// ============= COMANDOS CON PREFIJO (!) =============
+// ========== AYUDANTES ==========
+function getOrCreateUser(id) {
+  const d = loadData();
+  if (!d[id]) d[id] = { wallet:0, bank:0 };
+  return d;
+}
+
+// ========== COMANDOS CON PREFIJO (!) ==========
 client.on('messageCreate', async msg => {
   if (!msg.guild || msg.author.bot) return;
   const args = msg.content.trim().split(/\s+/);
   const cmd = args.shift()?.toLowerCase();
   const uid = msg.author.id;
-  const data = loadData();
-  if (!data[uid]) data[uid] = { wallet:0, bank:0 };
+  const data = getOrCreateUser(uid);
 
   // !balance / !saldo
   if (['!balance','!saldo'].includes(cmd)) {
@@ -124,7 +146,7 @@ client.on('messageCreate', async msg => {
     return msg.reply(`🏦 Depositaste ${formatMoney(amt)} al banco ✅`);
   }
 
-  // !withdraw
+  // !withdraw / !retirar
   if (['!withdraw','!retirar'].includes(cmd)) {
     let amt = args[0] === 'all' ? data[uid].bank : parseInt(args[0]);
     if (!amt || amt <= 0 || amt > data[uid].bank) return msg.reply('❌ Monto inválido');
@@ -134,7 +156,7 @@ client.on('messageCreate', async msg => {
     return msg.reply(`💵 Retiraste ${formatMoney(amt)} del banco ✅`);
   }
 
-  // !pay
+  // !pay / !pagar
   if (['!pay','!pagar'].includes(cmd)) {
     const quien = msg.mentions.users.first();
     const amt = parseInt(args[1]);
@@ -169,7 +191,7 @@ client.on('messageCreate', async msg => {
     }
   }
 
-  // !slots
+  // !slots / !tragamonedas
   if (['!slots','!tragamonedas'].includes(cmd)) {
     const ap = parseInt(args[0]);
     if (!ap || ap <= 0 || data[uid].wallet < ap)
@@ -181,11 +203,68 @@ client.on('messageCreate', async msg => {
     if (rod[0] === rod[1] && rod[1] === rod[2]) {
       gan = rod[0] === '💎' ? ap*10 : rod[0] === '7️⃣' ? ap*5 : ap*3;
     } else if (rod[0] === rod[1] || rod[1] === rod[2]) {
-      gan = ap*1.5;
+      gan = Math.floor(ap*1.5);
     }
-    if (gan > 0) data[uid].wallet += Math.floor(gan);
+    if (gan > 0) data[uid].wallet += gan;
     saveData(data);
     return msg.reply(`🎰 | ${rod[0]} | ${rod[1]} | ${rod[2]} |\n${gan>0?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
+  }
+
+  // !ruleta
+  if (cmd === '!ruleta') {
+    const color = args[0]?.toLowerCase();
+    const ap = parseInt(args[1]);
+    if (!['rojo','negro','verde'].includes(color) || !ap || ap <= 0 || data[uid].wallet < ap)
+      return msg.reply('❌ Uso: !ruleta rojo/negro/verde cantidad');
+    data[uid].wallet -= ap;
+    const res = Math.random() < 0.05 ? 'verde' : Math.random() < 0.5 ? 'rojo' : 'negro';
+    let gan = 0;
+    if (color === res) {
+      gan = color === 'verde' ? ap*14 : ap*2;
+      data[uid].wallet += gan;
+    }
+    saveData(data);
+    const emoji = res==='rojo'?'🔴':res==='negro'?'⚫':'🟢';
+    return msg.reply(`${emoji} Salió: ${res.toUpperCase()}\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+  }
+
+  // !dados
+  if (cmd === '!dados') {
+    const op = args[0]?.toLowerCase();
+    const ap = parseInt(args[1]);
+    const valido = ['par','impar','2','3','4','5','6','7','8','9','10','11','12'];
+    if (!valido.includes(op) || !ap || ap <= 0 || data[uid].wallet < ap)
+      return msg.reply('❌ Uso: !dados par/impar/número cantidad');
+    data[uid].wallet -= ap;
+    const d1 = Math.floor(Math.random()*6)+1;
+    const d2 = Math.floor(Math.random()*6)+1;
+    const total = d1+d2;
+    let gan = 0;
+    const acerto = op==='par' ? total%2===0 : op==='impar' ? total%2!==0 : parseInt(op)===total;
+    if (acerto) {
+      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ['4','5','9','10'].includes(op) ? ap*3 : ['6','7','8'].includes(op) ? ap*2.5 : ap*2;
+      data[uid].wallet += Math.floor(gan);
+    }
+    saveData(data);
+    return msg.reply(`🎲 Dado 1: ${d1} | Dado 2: ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
+  }
+
+  // !gallos
+  if (cmd === '!gallos') {
+    const eleccion = args[0]?.toLowerCase();
+    const ap = parseInt(args[1]);
+    if (!['rojo','azul'].includes(eleccion) || !ap || ap <= 0 || data[uid].wallet < ap)
+      return msg.reply('❌ Uso: !gallos rojo/azul cantidad');
+    data[uid].wallet -= ap;
+    const ganador = Math.random() < 0.5 ? 'rojo' : 'azul';
+    let gan = 0;
+    if (eleccion === ganador) {
+      gan = ap*2;
+      data[uid].wallet += gan;
+    }
+    saveData(data);
+    const nom = ganador==='rojo'?'Gallo Rojo 🔴':'Gallo Azul 🔵';
+    return msg.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Acertaste! Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
   // !leaderboard / !lb
@@ -203,13 +282,12 @@ client.on('messageCreate', async msg => {
   }
 });
 
-// ============= COMANDOS DE BARRA (/) =============
+// ========== COMANDOS DE BARRA (/) ==========
 client.on('interactionCreate', async int => {
   if (!int.isChatInputCommand()) return;
   const {commandName,user,options} = int;
   const uid = user.id;
-  const data = loadData();
-  if (!data[uid]) data[uid] = { wallet:0, bank:0 };
+  const data = getOrCreateUser(uid);
 
   if (commandName === 'balance') {
     const u = getUserData(uid);
@@ -314,6 +392,56 @@ client.on('interactionCreate', async int => {
     if (gan > 0) data[uid].wallet += gan;
     saveData(data);
     return int.reply(`🎰 | ${rod[0]} | ${rod[1]} | ${rod[2]} |\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+  }
+
+  if (commandName === 'ruleta') {
+    const color = options.getString('color');
+    const ap = options.getInteger('apuesta');
+    if (!ap || ap <= 0 || data[uid].wallet < ap) return int.reply('❌ Saldo insuficiente');
+    data[uid].wallet -= ap;
+    const res = Math.random() < 0.05 ? 'verde' : Math.random() < 0.5 ? 'rojo' : 'negro';
+    let gan = 0;
+    if (color === res) {
+      gan = color === 'verde' ? ap*14 : ap*2;
+      data[uid].wallet += gan;
+    }
+    saveData(data);
+    const emoji = res==='rojo'?'🔴':res==='negro'?'⚫':'🟢';
+    return int.reply(`${emoji} Salió: ${res.toUpperCase()}\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+  }
+
+  if (commandName === 'dados') {
+    const op = options.getString('opcion');
+    const ap = options.getInteger('apuesta');
+    if (!ap || ap <= 0 || data[uid].wallet < ap) return int.reply('❌ Saldo insuficiente');
+    data[uid].wallet -= ap;
+    const d1 = Math.floor(Math.random()*6)+1;
+    const d2 = Math.floor(Math.random()*6)+1;
+    const total = d1+d2;
+    let gan = 0;
+    const acerto = op==='par' ? total%2===0 : op==='impar' ? total%2!==0 : parseInt(op)===total;
+    if (acerto) {
+      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ['4','5','9','10'].includes(op) ? ap*3 : ap*2;
+      data[uid].wallet += Math.floor(gan);
+    }
+    saveData(data);
+    return int.reply(`🎲 Dado 1: ${d1} | Dado 2: ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
+  }
+
+  if (commandName === 'gallos') {
+    const eleccion = options.getString('gallos');
+    const ap = options.getInteger('apuesta');
+    if (!ap || ap <= 0 || data[uid].wallet < ap) return int.reply('❌ Saldo insuficiente');
+    data[uid].wallet -= ap;
+    const ganador = Math.random() < 0.5 ? 'rojo' : 'azul';
+    let gan = 0;
+    if (eleccion === ganador) {
+      gan = ap*2;
+      data[uid].wallet += gan;
+    }
+    saveData(data);
+    const nom = ganador==='rojo'?'Gallo Rojo 🔴':'Gallo Azul 🔵';
+    return int.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Acertaste! Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
   if (commandName === 'leaderboard') {
