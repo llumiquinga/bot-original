@@ -11,15 +11,28 @@ const client = new Client({
 });
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const DATA_FILE = path.join(__dirname, 'economy-data.json');
+// ✅ Carpeta SEGURA que NO se borra
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_FILE = path.join(DATA_DIR, 'economy-data.json');
+
+// Crear carpeta si no existe
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadData() {
-  if (!fs.existsSync(DATA_FILE)) return {};
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  try {
+    if (!fs.existsSync(DATA_FILE)) return {};
+    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('Error al guardar:', e);
+  }
 }
 
 function getUserData(id) {
@@ -46,21 +59,21 @@ const commands = [
   { name: 'crime', description: '🔨 Delinquir — riesgo alto' },
   { name: 'slots', description: '🎰 Tragamonedas', options: [{name:'apuesta',type:4,description:'Monto',required:true}] },
   { name: 'leaderboard', description: '🏆 Los más ricos' },
-  { name: 'ruleta', description: '🎡 Ruleta — rojo/negro/verde', options: [
-    {name:'color',type:3,description:'Elige: rojo/negro/verde',required:true,choices:[
+  { name: 'ruleta', description: '🎡 Ruleta', options: [
+    {name:'color',type:3,description:'rojo/negro/verde',required:true,choices:[
       {name:'Rojo',value:'rojo'},{name:'Negro',value:'negro'},{name:'Verde',value:'verde'}
     ]},
-    {name:'apuesta',type:4,description:'Cantidad a apostar',required:true}
+    {name:'apuesta',type:4,description:'Cantidad',required:true}
   ]},
-  { name: 'dados', description: '🎲 Dados — par/impar/número', options: [
-    {name:'opcion',type:3,description:'Par/Impar/Número(2-12)',required:true},
-    {name:'apuesta',type:4,description:'Cantidad a apostar',required:true}
+  { name: 'dados', description: '🎲 Dados', options: [
+    {name:'opcion',type:3,description:'par/impar/número',required:true},
+    {name:'apuesta',type:4,description:'Cantidad',required:true}
   ]},
-  { name: 'gallos', description: '🐔 Pelea de gallos — apuesta a tu gallo', options: [
-    {name:'gallos',type:3,description:'Gallo Rojo o Gallo Azul',required:true,choices:[
+  { name: 'gallos', description: '🐔 Pelea de gallos', options: [
+    {name:'eleccion',type:3,description:'rojo/azul',required:true,choices:[
       {name:'Gallo Rojo 🔴',value:'rojo'},{name:'Gallo Azul 🔵',value:'azul'}
     ]},
-    {name:'apuesta',type:4,description:'Cantidad a apostar',required:true}
+    {name:'apuesta',type:4,description:'Cantidad',required:true}
   ]}
 ];
 
@@ -69,20 +82,14 @@ const rest = new REST({version:'10'}).setToken(TOKEN);
   try {
     console.log('🔄 Cargando comandos...');
     await rest.put(Routes.applicationCommands(client.user?.id??''), {body:commands});
-    console.log('✅ ¡Todos los comandos listos!');
+    console.log('✅ Comandos listos!');
   } catch(e){console.error(e);}
 })();
 
 client.on('ready', () => {
   console.log(`✅ Encendido como ${client.user.tag}`);
+  console.log(`📂 Datos guardados en: ${DATA_FILE}`);
 });
-
-// ========== AYUDANTES ==========
-function getOrCreateUser(id) {
-  const d = loadData();
-  if (!d[id]) d[id] = { wallet:0, bank:0 };
-  return d;
-}
 
 // ========== COMANDOS CON PREFIJO (!) ==========
 client.on('messageCreate', async msg => {
@@ -90,14 +97,13 @@ client.on('messageCreate', async msg => {
   const args = msg.content.trim().split(/\s+/);
   const cmd = args.shift()?.toLowerCase();
   const uid = msg.author.id;
-  const data = getOrCreateUser(uid);
+  let data = loadData();
+  if (!data[uid]) data[uid] = { wallet:0, bank:0 };
 
-  // !balance / !saldo
   if (['!balance','!saldo'].includes(cmd)) {
     const u = getUserData(uid);
     return msg.reply({embeds:[new EmbedBuilder()
-      .setColor('#FFD700')
-      .setTitle(`💰 Saldo de ${msg.author.username}`)
+      .setColor('#FFD700').setTitle(`💰 Saldo de ${msg.author.username}`)
       .addFields(
         {name:'💵 Cartera',value:formatMoney(u.wallet),inline:true},
         {name:'🏦 Banco',value:formatMoney(u.bank),inline:true},
@@ -107,7 +113,6 @@ client.on('messageCreate', async msg => {
     ]});
   }
 
-  // !daily / !diario
   if (['!daily','!diario'].includes(cmd)) {
     const last = data[uid].lastDaily || 0;
     const cd = 24*60*60*1000;
@@ -121,7 +126,6 @@ client.on('messageCreate', async msg => {
     return msg.reply(`🎉 ¡Bono diario! +$150 💵`);
   }
 
-  // !work
   if (cmd === '!work') {
     const last = data[uid].lastWork || 0;
     const cd = 4*60*60*1000;
@@ -136,40 +140,30 @@ client.on('messageCreate', async msg => {
     return msg.reply(`💼 ¡Trabajaste bien! Ganaste ${formatMoney(gan)} 💵`);
   }
 
-  // !deposit
   if (cmd === '!deposit') {
     let amt = args[0] === 'all' ? data[uid].wallet : parseInt(args[0]);
     if (!amt || amt <= 0 || amt > data[uid].wallet) return msg.reply('❌ Monto inválido');
-    data[uid].wallet -= amt;
-    data[uid].bank += amt;
-    saveData(data);
+    data[uid].wallet -= amt; data[uid].bank += amt; saveData(data);
     return msg.reply(`🏦 Depositaste ${formatMoney(amt)} al banco ✅`);
   }
 
-  // !withdraw / !retirar
   if (['!withdraw','!retirar'].includes(cmd)) {
     let amt = args[0] === 'all' ? data[uid].bank : parseInt(args[0]);
     if (!amt || amt <= 0 || amt > data[uid].bank) return msg.reply('❌ Monto inválido');
-    data[uid].bank -= amt;
-    data[uid].wallet += amt;
-    saveData(data);
+    data[uid].bank -= amt; data[uid].wallet += amt; saveData(data);
     return msg.reply(`💵 Retiraste ${formatMoney(amt)} del banco ✅`);
   }
 
-  // !pay / !pagar
   if (['!pay','!pagar'].includes(cmd)) {
     const quien = msg.mentions.users.first();
     const amt = parseInt(args[1]);
     if (!quien || !amt || amt <= 0 || data[uid].wallet < amt)
       return msg.reply('❌ Uso: !pay @usuario cantidad');
     if (!data[quien.id]) data[quien.id] = {wallet:0,bank:0};
-    data[uid].wallet -= amt;
-    data[quien.id].wallet += amt;
-    saveData(data);
+    data[uid].wallet -= amt; data[quien.id].wallet += amt; saveData(data);
     return msg.reply(`💸 Le enviaste ${formatMoney(amt)} a ${quien.username} ✅`);
   }
 
-  // !crime
   if (cmd === '!crime') {
     const last = data[uid].lastCrime || 0;
     const cd = 2*60*60*1000;
@@ -191,7 +185,6 @@ client.on('messageCreate', async msg => {
     }
   }
 
-  // !slots / !tragamonedas
   if (['!slots','!tragamonedas'].includes(cmd)) {
     const ap = parseInt(args[0]);
     if (!ap || ap <= 0 || data[uid].wallet < ap)
@@ -210,7 +203,6 @@ client.on('messageCreate', async msg => {
     return msg.reply(`🎰 | ${rod[0]} | ${rod[1]} | ${rod[2]} |\n${gan>0?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
   }
 
-  // !ruleta
   if (cmd === '!ruleta') {
     const color = args[0]?.toLowerCase();
     const ap = parseInt(args[1]);
@@ -228,7 +220,6 @@ client.on('messageCreate', async msg => {
     return msg.reply(`${emoji} Salió: ${res.toUpperCase()}\n${gan>0?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
-  // !dados
   if (cmd === '!dados') {
     const op = args[0]?.toLowerCase();
     const ap = parseInt(args[1]);
@@ -242,14 +233,13 @@ client.on('messageCreate', async msg => {
     let gan = 0;
     const acerto = op==='par' ? total%2===0 : op==='impar' ? total%2!==0 : parseInt(op)===total;
     if (acerto) {
-      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ['4','5','9','10'].includes(op) ? ap*3 : ['6','7','8'].includes(op) ? ap*2.5 : ap*2;
+      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ap*2;
       data[uid].wallet += Math.floor(gan);
     }
     saveData(data);
-    return msg.reply(`🎲 Dado 1: ${d1} | Dado 2: ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
+    return msg.reply(`🎲 ${d1} + ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
   }
 
-  // !gallos
   if (cmd === '!gallos') {
     const eleccion = args[0]?.toLowerCase();
     const ap = parseInt(args[1]);
@@ -264,18 +254,15 @@ client.on('messageCreate', async msg => {
     }
     saveData(data);
     const nom = ganador==='rojo'?'Gallo Rojo 🔴':'Gallo Azul 🔵';
-    return msg.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Acertaste! Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+    return msg.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
-  // !leaderboard / !lb
   if (['!leaderboard','!lb'].includes(cmd)) {
     const todos = Object.entries(loadData())
       .map(([id,d])=>({id,total:d.wallet+d.bank}))
       .sort((a,b)=>b.total-a.total).slice(0,10);
     let txt = '';
-    for(let i=0;i<todos.length;i++){
-      txt += `${i+1}. <@${todos[i].id}> — ${formatMoney(todos[i].total)}\n`;
-    }
+    for(let i=0;i<todos.length;i++) txt += `${i+1}. <@${todos[i].id}> — ${formatMoney(todos[i].total)}\n`;
     return msg.reply({embeds:[new EmbedBuilder()
       .setColor('#FFD700').setTitle('🏆 Los más ricos').setDescription(txt||'Sin datos')
     ]});
@@ -287,7 +274,8 @@ client.on('interactionCreate', async int => {
   if (!int.isChatInputCommand()) return;
   const {commandName,user,options} = int;
   const uid = user.id;
-  const data = getOrCreateUser(uid);
+  let data = loadData();
+  if (!data[uid]) data[uid] = { wallet:0, bank:0 };
 
   if (commandName === 'balance') {
     const u = getUserData(uid);
@@ -331,7 +319,6 @@ client.on('interactionCreate', async int => {
 
   if (commandName === 'deposit') {
     let amt = options.getInteger('cantidad');
-    if (amt === -1) amt = data[uid].wallet;
     if (!amt || amt <= 0 || amt > data[uid].wallet) return int.reply('❌ Monto inválido');
     data[uid].wallet -= amt; data[uid].bank += amt; saveData(data);
     return int.reply(`🏦 Depositaste ${formatMoney(amt)} al banco ✅`);
@@ -339,7 +326,6 @@ client.on('interactionCreate', async int => {
 
   if (commandName === 'withdraw') {
     let amt = options.getInteger('cantidad');
-    if (amt === -1) amt = data[uid].bank;
     if (!amt || amt <= 0 || amt > data[uid].bank) return int.reply('❌ Monto inválido');
     data[uid].bank -= amt; data[uid].wallet += amt; saveData(data);
     return int.reply(`💵 Retiraste ${formatMoney(amt)} del banco ✅`);
@@ -421,15 +407,15 @@ client.on('interactionCreate', async int => {
     let gan = 0;
     const acerto = op==='par' ? total%2===0 : op==='impar' ? total%2!==0 : parseInt(op)===total;
     if (acerto) {
-      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ['4','5','9','10'].includes(op) ? ap*3 : ap*2;
+      gan = ['2','12'].includes(op) ? ap*6 : ['3','11'].includes(op) ? ap*5 : ap*2;
       data[uid].wallet += Math.floor(gan);
     }
     saveData(data);
-    return int.reply(`🎲 Dado 1: ${d1} | Dado 2: ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
+    return int.reply(`🎲 ${d1} + ${d2} = **${total}**\n${acerto?`🎉 ¡Ganaste ${formatMoney(Math.floor(gan))}!`:'😢 Perdiste'}`);
   }
 
   if (commandName === 'gallos') {
-    const eleccion = options.getString('gallos');
+    const eleccion = options.getString('eleccion');
     const ap = options.getInteger('apuesta');
     if (!ap || ap <= 0 || data[uid].wallet < ap) return int.reply('❌ Saldo insuficiente');
     data[uid].wallet -= ap;
@@ -441,7 +427,7 @@ client.on('interactionCreate', async int => {
     }
     saveData(data);
     const nom = ganador==='rojo'?'Gallo Rojo 🔴':'Gallo Azul 🔵';
-    return int.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Acertaste! Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
+    return int.reply(`🐔 ¡Pelea! ⚔️\n🏆 Ganador: **${nom}**\n${eleccion===ganador?`🎉 ¡Ganaste ${formatMoney(gan)}!`:'😢 Perdiste'}`);
   }
 
   if (commandName === 'leaderboard') {
